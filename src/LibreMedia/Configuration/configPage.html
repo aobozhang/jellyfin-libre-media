@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>LibreMedia</title>
+</head>
+<body>
+    <div id="LibreMediaConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="LibreMediaConfigForm">
+                    <h3>Content Sources</h3>
+                    <div id="contentSourcesList"></div>
+                    <button is="emby-button" type="button" id="addSourceBtn" class="raised button-subtle block emby-button">
+                        <span>+ Add Source</span>
+                    </button>
+
+                    <hr style="margin: 2em 0;" />
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="SyncIntervalMinutes">Sync Interval (minutes)</label>
+                        <input id="SyncIntervalMinutes" name="SyncIntervalMinutes" type="number" is="emby-input" min="5" />
+                    </div>
+
+                    <div class="checkboxContainer">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableAutoSync" name="EnableAutoSync" type="checkbox" is="emby-checkbox" />
+                            <span>Enable Auto Sync</span>
+                        </label>
+                    </div>
+
+                    <div style="margin-top: 1.5em;">
+                        <button is="emby-button" type="button" id="syncNowBtn" class="raised button-subtle block emby-button">
+                            <span>Sync Now</span>
+                        </button>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button" style="margin-top: 2em;">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            var LibreMediaConfig = {
+                pluginUniqueId: 'c3d4e5f6-7890-abcd-ef12-345678901234'
+            };
+
+            function renderSource(source, index) {
+                return `
+                    <div class="source-item" style="margin-bottom: 1.5em; padding: 1em; border: 1px solid #333; border-radius: 8px;">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused">Name</label>
+                            <input class="source-name" type="text" is="emby-input" value="${escapeHtml(source.Name || '')}" data-index="${index}" />
+                        </div>
+                        <div class="inputContainer" style="margin-top: 0.5em;">
+                            <label class="inputLabel inputLabelUnfocused">API URL</label>
+                            <input class="source-apiurl" type="text" is="emby-input" value="${escapeHtml(source.ApiUrl || '')}" data-index="${index}" style="width: 100%;" />
+                        </div>
+                        <div class="checkboxContainer" style="margin-top: 0.5em;">
+                            <label class="emby-checkbox-label">
+                                <input class="source-enabled" type="checkbox" is="emby-checkbox" ${source.IsEnabled ? 'checked' : ''} data-index="${index}" />
+                                <span>Enabled</span>
+                            </label>
+                        </div>
+                        <button is="emby-button" type="button" class="raised button-danger remove-source-btn" data-index="${index}" style="margin-top: 0.5em;">Remove</button>
+                    </div>
+                `;
+            }
+
+            function escapeHtml(str) {
+                if (!str) return '';
+                return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function getSourcesFromDom() {
+                var sources = [];
+                document.querySelectorAll('.source-item').forEach(function(item) {
+                    var idx = item.querySelector('.source-name').dataset.index;
+                    sources.push({
+                        Id: item.dataset.sourceId || generateId(),
+                        Name: item.querySelector('.source-name').value,
+                        ApiUrl: item.querySelector('.source-apiurl').value,
+                        IsEnabled: item.querySelector('.source-enabled').checked
+                    });
+                });
+                return sources;
+            }
+
+            function generateId() {
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+
+            document.querySelector('#LibreMediaConfigPage').addEventListener('pageshow', function() {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(LibreMediaConfig.pluginUniqueId).then(function(config) {
+                    document.getElementById('SyncIntervalMinutes').value = config.SyncIntervalMinutes || 60;
+                    document.getElementById('EnableAutoSync').checked = config.EnableAutoSync !== false;
+
+                    var list = document.getElementById('contentSourcesList');
+                    list.innerHTML = '';
+                    (config.ContentSources || []).forEach(function(source, i) {
+                        var div = document.createElement('div');
+                        div.className = 'source-item';
+                        div.dataset.sourceId = source.Id || generateId();
+                        div.innerHTML = renderSource(source, i);
+                        list.appendChild(div);
+                    });
+
+                    list.querySelectorAll('.remove-source-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            btn.closest('.source-item').remove();
+                        });
+                    });
+
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            document.getElementById('addSourceBtn').addEventListener('click', function() {
+                var list = document.getElementById('contentSourcesList');
+                var idx = list.children.length;
+                var div = document.createElement('div');
+                div.className = 'source-item';
+                div.dataset.sourceId = generateId();
+                div.innerHTML = renderSource({ Name: '', ApiUrl: '', IsEnabled: true }, idx);
+                list.appendChild(div);
+
+                div.querySelector('.remove-source-btn').addEventListener('click', function() {
+                    div.remove();
+                });
+            });
+
+            document.querySelector('#LibreMediaConfigForm').addEventListener('submit', function(e) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(LibreMediaConfig.pluginUniqueId).then(function(config) {
+                    config.ContentSources = getSourcesFromDom();
+                    config.SyncIntervalMinutes = parseInt(document.getElementById('SyncIntervalMinutes').value) || 60;
+                    config.EnableAutoSync = document.getElementById('EnableAutoSync').checked;
+
+                    ApiClient.updatePluginConfiguration(LibreMediaConfig.pluginUniqueId, config).then(function(result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+                e.preventDefault();
+                return false;
+            });
+        </script>
+    </div>
+</body>
+</html>
