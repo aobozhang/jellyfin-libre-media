@@ -48,45 +48,13 @@
                 pluginUniqueId: 'c3d4e5f6-7890-abcd-ef12-345678901234'
             };
 
-            function renderSource(source, index) {
-                return `
-                    <div class="source-item" style="margin-bottom: 1.5em; padding: 1em; border: 1px solid #333; border-radius: 8px;">
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused">Name</label>
-                            <input class="source-name" type="text" is="emby-input" value="${escapeHtml(source.Name || '')}" data-index="${index}" />
-                        </div>
-                        <div class="inputContainer" style="margin-top: 0.5em;">
-                            <label class="inputLabel inputLabelUnfocused">API URL</label>
-                            <input class="source-apiurl" type="text" is="emby-input" value="${escapeHtml(source.ApiUrl || '')}" data-index="${index}" style="width: 100%;" />
-                        </div>
-                        <div class="checkboxContainer" style="margin-top: 0.5em;">
-                            <label class="emby-checkbox-label">
-                                <input class="source-enabled" type="checkbox" is="emby-checkbox" ${source.IsEnabled ? 'checked' : ''} data-index="${index}" />
-                                <span>Enabled</span>
-                            </label>
-                        </div>
-                        <button is="emby-button" type="button" class="raised button-danger remove-source-btn" data-index="${index}" style="margin-top: 0.5em;">Remove</button>
-                    </div>
-                `;
-            }
-
-            function escapeHtml(str) {
-                if (!str) return '';
-                return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-            }
-
-            function getSourcesFromDom() {
-                var sources = [];
-                document.querySelectorAll('.source-item').forEach(function(item) {
-                    var idx = item.querySelector('.source-name').dataset.index;
-                    sources.push({
-                        Id: item.dataset.sourceId || generateId(),
-                        Name: item.querySelector('.source-name').value,
-                        ApiUrl: item.querySelector('.source-apiurl').value,
-                        IsEnabled: item.querySelector('.source-enabled').checked
-                    });
-                });
-                return sources;
+            function htmlEncode(str) {
+                if (str === null || str === undefined) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
             }
 
             function generateId() {
@@ -96,7 +64,88 @@
                 });
             }
 
-            document.querySelector('#LibreMediaConfigPage').addEventListener('pageshow', function() {
+            function createSourceRow(sourceData, index) {
+                var div = document.createElement('div');
+                div.className = 'source-item';
+                div.dataset.sourceId = sourceData.Id || generateId();
+                div.dataset.index = index;
+
+                var nameInput = document.createElement('input');
+                nameInput.type = 'text';
+                nameInput.className = 'source-name';
+                nameInput.setAttribute('is', 'emby-input');
+                nameInput.setAttribute('data-index', index);
+                nameInput.value = sourceData.Name || '';
+
+                var urlInput = document.createElement('input');
+                urlInput.type = 'text';
+                urlInput.className = 'source-apiurl';
+                urlInput.setAttribute('is', 'emby-input');
+                urlInput.setAttribute('data-index', index);
+                urlInput.value = sourceData.ApiUrl || '';
+                urlInput.style.width = '100%';
+
+                var enabledCb = document.createElement('input');
+                enabledCb.type = 'checkbox';
+                enabledCb.className = 'source-enabled';
+                enabledCb.setAttribute('is', 'emby-checkbox');
+                enabledCb.setAttribute('data-index', index);
+                enabledCb.checked = sourceData.IsEnabled !== false;
+
+                var removeBtn = document.createElement('button');
+                removeBtn.setAttribute('is', 'emby-button');
+                removeBtn.setAttribute('type', 'button');
+                removeBtn.className = 'raised button-danger remove-source-btn';
+                removeBtn.setAttribute('data-index', index);
+                removeBtn.textContent = 'Remove';
+                removeBtn.style.marginTop = '0.5em';
+                removeBtn.addEventListener('click', function() {
+                    div.remove();
+                });
+
+                var nameLabel = document.createElement('label');
+                nameLabel.className = 'inputLabel inputLabelUnfocused';
+                nameLabel.textContent = 'Name';
+
+                var urlLabel = document.createElement('label');
+                urlLabel.className = 'inputLabel inputLabelUnfocused';
+                urlLabel.textContent = 'API URL';
+                urlLabel.style.marginTop = '0.5em';
+
+                var enabledLabel = document.createElement('label');
+                enabledLabel.className = 'emby-checkbox-label';
+                enabledLabel.style.marginTop = '0.5em';
+
+                var enabledSpan = document.createElement('span');
+                enabledSpan.textContent = 'Enabled';
+
+                var nameContainer = document.createElement('div');
+                nameContainer.className = 'inputContainer';
+                nameContainer.appendChild(nameLabel);
+                nameContainer.appendChild(nameInput);
+
+                var urlContainer = document.createElement('div');
+                urlContainer.className = 'inputContainer';
+                urlContainer.style.marginTop = '0.5em';
+                urlContainer.appendChild(urlLabel);
+                urlContainer.appendChild(urlInput);
+
+                var enabledContainer = document.createElement('div');
+                enabledContainer.className = 'checkboxContainer';
+                enabledContainer.style.marginTop = '0.5em';
+                enabledLabel.appendChild(enabledCb);
+                enabledLabel.appendChild(enabledSpan);
+                enabledContainer.appendChild(enabledLabel);
+
+                div.appendChild(nameContainer);
+                div.appendChild(urlContainer);
+                div.appendChild(enabledContainer);
+                div.appendChild(removeBtn);
+
+                return div;
+            }
+
+            function loadConfig() {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(LibreMediaConfig.pluginUniqueId).then(function(config) {
                     document.getElementById('SyncIntervalMinutes').value = config.SyncIntervalMinutes || 60;
@@ -104,52 +153,85 @@
 
                     var list = document.getElementById('contentSourcesList');
                     list.innerHTML = '';
-                    (config.ContentSources || []).forEach(function(source, i) {
-                        var div = document.createElement('div');
-                        div.className = 'source-item';
-                        div.dataset.sourceId = source.Id || generateId();
-                        div.innerHTML = renderSource(source, i);
-                        list.appendChild(div);
-                    });
-
-                    list.querySelectorAll('.remove-source-btn').forEach(function(btn) {
-                        btn.addEventListener('click', function() {
-                            btn.closest('.source-item').remove();
-                        });
+                    var sources = config.ContentSources || [];
+                    sources.forEach(function(source, i) {
+                        var row = createSourceRow(source, i);
+                        list.appendChild(row);
                     });
 
                     Dashboard.hideLoadingMsg();
+                }).catch(function(err) {
+                    Dashboard.hideLoadingMsg();
+                    console.error('Failed to load config:', err);
                 });
-            });
+            }
+
+            function getSourcesFromDom() {
+                var sources = [];
+                var items = document.querySelectorAll('.source-item');
+                items.forEach(function(item) {
+                    var nameInput = item.querySelector('.source-name');
+                    var urlInput = item.querySelector('.source-apiurl');
+                    var enabledCb = item.querySelector('.source-enabled');
+                    if (nameInput) {
+                        sources.push({
+                            Id: item.dataset.sourceId || generateId(),
+                            Name: nameInput.value || '',
+                            ApiUrl: urlInput ? urlInput.value || '' : '',
+                            IsEnabled: enabledCb ? enabledCb.checked : true
+                        });
+                    }
+                });
+                return sources;
+            }
+
+            document.querySelector('#LibreMediaConfigPage').addEventListener('pageshow', loadConfig);
 
             document.getElementById('addSourceBtn').addEventListener('click', function() {
                 var list = document.getElementById('contentSourcesList');
                 var idx = list.children.length;
-                var div = document.createElement('div');
-                div.className = 'source-item';
-                div.dataset.sourceId = generateId();
-                div.innerHTML = renderSource({ Name: '', ApiUrl: '', IsEnabled: true }, idx);
-                list.appendChild(div);
+                var newSource = { Name: '', ApiUrl: '', IsEnabled: true };
+                var row = createSourceRow(newSource, idx);
+                list.appendChild(row);
+            });
 
-                div.querySelector('.remove-source-btn').addEventListener('click', function() {
-                    div.remove();
+            document.getElementById('syncNowBtn').addEventListener('click', function() {
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('LibreMedia/Sync')
+                }).then(function() {
+                    Dashboard.hideLoadingMsg();
+                    require(['alert'], function(alert) {
+                        alert('Sync completed');
+                    });
+                }).catch(function(err) {
+                    Dashboard.hideLoadingMsg();
+                    console.error('Sync failed:', err);
                 });
             });
 
             document.querySelector('#LibreMediaConfigForm').addEventListener('submit', function(e) {
+                e.preventDefault();
                 Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(LibreMediaConfig.pluginUniqueId).then(function(config) {
-                    config.ContentSources = getSourcesFromDom();
-                    config.SyncIntervalMinutes = parseInt(document.getElementById('SyncIntervalMinutes').value) || 60;
-                    config.EnableAutoSync = document.getElementById('EnableAutoSync').checked;
 
-                    ApiClient.updatePluginConfiguration(LibreMediaConfig.pluginUniqueId, config).then(function(result) {
-                        Dashboard.processPluginConfigurationUpdateResult(result);
-                        Dashboard.hideLoadingMsg();
+                var configData = {
+                    ContentSources: getSourcesFromDom(),
+                    SyncIntervalMinutes: parseInt(document.getElementById('SyncIntervalMinutes').value) || 60,
+                    EnableAutoSync: document.getElementById('EnableAutoSync').checked
+                };
+
+                ApiClient.updatePluginConfiguration(LibreMediaConfig.pluginUniqueId, configData).then(function(result) {
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                    Dashboard.hideLoadingMsg();
+                    loadConfig();
+                }).catch(function(err) {
+                    Dashboard.hideLoadingMsg();
+                    console.error('Save failed:', err);
+                    require(['alert'], function(alert) {
+                        alert('Save failed: ' + (err.message || String(err)));
                     });
                 });
-                e.preventDefault();
-                return false;
             });
         </script>
     </div>
