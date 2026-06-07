@@ -3,22 +3,19 @@ using LibreMedia.Services;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Channels;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaInfo;
 using Microsoft.Extensions.Logging;
 
 namespace LibreMedia.Channels;
 
-public class LibreChannel(
-    ContentSource source,
-    ILogger<LibreChannel> logger) : Channel, IChannel
+public class LibreChannel(ILoggerFactory loggerFactory) : Channel, IChannel
 {
-    private readonly ContentSource _source = source;
-    private readonly ILogger<LibreChannel> _logger = logger;
+    private readonly ILogger<LibreChannel> _logger = loggerFactory.CreateLogger<LibreChannel>();
 
-    public override string Name => _source.Name;
+    public override string Name => "LibreMedia";
 
     public string Description => string.Empty;
     public string DataVersion => "1";
@@ -28,30 +25,72 @@ public class LibreChannel(
     private ContentSyncService SyncService => ServiceLocator.SyncService;
     private StreamResolverService StreamResolver => ServiceLocator.StreamResolver;
 
+    private List<ContentSource> GetEnabledSources()
+        => Plugin.Instance?.Configuration?.ContentSources?.Where(s => s.IsEnabled).ToList() ?? [];
+
     public async Task<ChannelItemResult> GetChannelItems(InternalChannelItemQuery query, CancellationToken ct)
     {
-        var items = SyncService.GetCachedItems(_source.Id);
         var folderId = query.FolderId ?? string.Empty;
 
         var result = folderId switch
         {
-            "" => BuildRootFolders(items),
-            "latest" => BuildLatestItems(items, query),
-            _ when folderId.StartsWith("cat_") => BuildCategoryItems(items, query, folderId),
-            _ => BuildRootFolders(items)
+            "" => BuildSourceList(),
+            _ when folderId.StartsWith("src_") => await GetSourceItemsAsync(folderId, query, ct),
+            _ => BuildSourceList()
         };
 
         return new ChannelItemResult { Items = result };
     }
 
-    private List<ChannelItemInfo> BuildRootFolders(List<CmsVideoItem> items)
+    private List<ChannelItemInfo> BuildSourceList()
+    {
+        return GetEnabledSources().Select(source => new ChannelItemInfo
+        {
+            Name = source.Name,
+            Id = $"src_{source.Id}",
+            Type = ChannelItemType.Folder,
+            MediaType = ChannelMediaType.Video,
+            ImageUrl = null
+        }).ToList();
+    }
+
+    private async Task<List<ChannelItemInfo>> GetSourceItemsAsync(string folderId, InternalChannelItemQuery query, CancellationToken ct)
+    {
+        var sourceId = folderId.Substring(4);
+        var sources = GetEnabledSources();
+        var source = sources.FirstOrDefault(s => s.Id == sourceId);
+        if (source == null) return [];
+
+        // Trigger sync if cache is empty
+        var items = SyncService.GetCachedItems(sourceId);
+        if (items.Count == 0)
+        {
+            await SyncService.SyncSourceAsync(source, ct);
+            items = SyncService.GetCachedItems(sourceId);
+        }
+
+        var subFolderId = query.FolderId ?? "";
+        var cleanId = subFolderId.Length > 4 ? subFolderId.Substring(4) : "";
+
+        // Parse the rest: "latest" or "cat_N"
+        if (cleanId.StartsWith("latest"))
+            return BuildLatestItems(items, query);
+
+        if (cleanId.StartsWith("cat_"))
+            return BuildCategoryItems(items, query, cleanId);
+
+        // Top level of source: show Latest + categories
+        return BuildSourceRoot(items);
+    }
+
+    private List<ChannelItemInfo> BuildSourceRoot(List<CmsVideoItem> items)
     {
         var results = new List<ChannelItemInfo>
         {
             new()
             {
                 Name = "最新",
-                Id = "latest",
+                Id = "",
                 Type = ChannelItemType.Folder,
                 MediaType = ChannelMediaType.Video,
                 ImageUrl = null
@@ -150,5 +189,5 @@ public class LibreChannel(
         return [ImageType.Primary];
     }
 
-    public bool IsEnabledFor(string userId) => _source.IsEnabled;
+    public bool IsEnabledFor(string userId) => true;
 }

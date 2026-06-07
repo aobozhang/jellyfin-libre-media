@@ -1,13 +1,19 @@
 using System.Globalization;
+using LibreMedia.Channels;
 using LibreMedia.Configuration;
+using LibreMedia.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Channels;
+using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LibreMedia;
 
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IPluginServiceRegistrator
 {
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
         : base(applicationPaths, xmlSerializer)
@@ -31,5 +37,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Configuration.configPage.html", GetType().Namespace)
             }
         ];
+    }
+
+    public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
+    {
+        serviceCollection.AddSingleton<CmsApiClient>();
+        serviceCollection.AddSingleton<ContentSyncService>();
+        serviceCollection.AddSingleton<IChannel, LibreChannel>();
     }
 }
