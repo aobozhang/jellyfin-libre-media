@@ -143,6 +143,44 @@ public class ContentSyncService(
         }
     }
 
+    public async Task SyncIfEmptyAsync(string sourceId, CancellationToken ct = default)
+    {
+        bool isEmpty;
+        lock (_cacheLock)
+        {
+            isEmpty = !_subSourceCache.ContainsKey(sourceId) || _subSourceCache[sourceId].Count == 0;
+        }
+        if (isEmpty)
+        {
+            var config = Plugin.Instance?.Configuration;
+            var source = config?.ContentSources?.FirstOrDefault(s => s.Id == sourceId && s.IsEnabled);
+            if (source != null)
+            {
+                await SyncSourceAsync(source, ct);
+            }
+        }
+    }
+
+    public async Task SyncSubSourceIfEmptyAsync(string sourceId, string subIndex, CancellationToken ct = default)
+    {
+        bool isEmpty;
+        lock (_cacheLock)
+        {
+            isEmpty = !_cache.ContainsKey($"{sourceId}:{subIndex}") || _cache[$"{sourceId}:{subIndex}"].Count == 0;
+        }
+        if (isEmpty)
+        {
+            var config = Plugin.Instance?.Configuration;
+            var source = config?.ContentSources?.FirstOrDefault(s => s.Id == sourceId && s.IsEnabled);
+            var subSources = GetCachedSubSources(sourceId);
+            var idx = int.TryParse(subIndex, out var i) ? i : -1;
+            if (source != null && idx >= 0 && idx < subSources.Count)
+            {
+                await SyncSubSourceAsync(source, subIndex, subSources[idx].Api, ct);
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

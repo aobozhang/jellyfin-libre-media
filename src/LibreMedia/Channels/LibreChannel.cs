@@ -75,18 +75,19 @@ public class LibreChannel(ILoggerFactory loggerFactory) : Channel, IChannel
         var source = sources.FirstOrDefault(s => s.Id == sourceId);
         if (source == null) return [];
 
-        var subSources = SyncService.GetCachedSubSources(sourceId);
-
-        // Level 1: src_{sourceId} -> show sub-source list (or content root if no sub-sources)
+        // Level 1: src_{sourceId} -> trigger sync if needed, then show sub-source list
         if (parts.Length == 1)
         {
+            await SyncService.SyncIfEmptyAsync(sourceId, ct);
+            var subSources = SyncService.GetCachedSubSources(sourceId);
+
             if (subSources.Count > 0)
             {
                 return BuildSubSourceList(sourceId, subSources);
             }
             else
             {
-                // No sub-sources: trigger sync and show source root
+                // No sub-sources: show source root
                 await EnsureSourceSynced(source, ct);
                 return BuildSourceRoot(sourceId, "0");
             }
@@ -96,7 +97,7 @@ public class LibreChannel(ILoggerFactory loggerFactory) : Channel, IChannel
         if (parts.Length == 2 && parts[1].StartsWith("sub_"))
         {
             var subIdx = parts[1].Substring(4);
-            await EnsureSubSourceSynced(source, subIdx, ct);
+            await SyncService.SyncSubSourceIfEmptyAsync(sourceId, subIdx, ct);
             return BuildSourceRoot(sourceId, subIdx);
         }
 
@@ -104,6 +105,7 @@ public class LibreChannel(ILoggerFactory loggerFactory) : Channel, IChannel
         if (parts.Length == 3 && parts[1].StartsWith("sub_"))
         {
             var subIdx = parts[1].Substring(4);
+            await SyncService.SyncSubSourceIfEmptyAsync(sourceId, subIdx, ct);
             var items = SyncService.GetCachedItems(sourceId, subIdx);
             var action = parts[2];
 
@@ -125,20 +127,6 @@ public class LibreChannel(ILoggerFactory loggerFactory) : Channel, IChannel
         if (items.Count == 0)
         {
             await SyncService.SyncSourceAsync(source, ct);
-        }
-    }
-
-    private async Task EnsureSubSourceSynced(ContentSource source, string subIdx, CancellationToken ct)
-    {
-        var items = SyncService.GetCachedItems(source.Id, subIdx);
-        if (items.Count == 0)
-        {
-            var subSources = SyncService.GetCachedSubSources(source.Id);
-            var idx = int.TryParse(subIdx, out var i) ? i : -1;
-            if (idx >= 0 && idx < subSources.Count)
-            {
-                await SyncService.SyncSourceAsync(source, ct);
-            }
         }
     }
 
