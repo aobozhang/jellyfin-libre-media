@@ -13,7 +13,8 @@ public class CmsApiClient(HttpClient httpClient, ILogger<CmsApiClient> logger)
     {
         try
         {
-            var url = $"{apiUrl.TrimEnd('/')}?format=1&page={page}&pageSize={pageSize}";
+            var separator = apiUrl.Contains('?') ? "&" : "?";
+            var url = $"{apiUrl.TrimEnd('/')}{separator}format=1&page={page}&pageSize={pageSize}";
             var response = await _httpClient.GetFromJsonAsync<CmsApiResponse>(url, ct);
             if (response?.Code != 0)
             {

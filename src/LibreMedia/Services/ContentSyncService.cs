@@ -14,15 +14,8 @@ public class ContentSyncService(
     private bool _disposed;
 
     private readonly Dictionary<string, List<CmsVideoItem>> _cache = [];
+    private readonly Dictionary<string, List<CmsSubSource>> _subSourceCache = [];
     private readonly object _cacheLock = new();
-
-    public IReadOnlyDictionary<string, List<CmsVideoItem>> Cache
-    {
-        get
-        {
-            lock (_cacheLock) return new Dictionary<string, List<CmsVideoItem>>(_cache);
-        }
-    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -54,12 +47,61 @@ public class ContentSyncService(
         _logger.LogInformation("Syncing source {Name}", source.Name);
         try
         {
-            var items = await _cmsApiClient.GetAllContentAsync(source.ApiUrl, ct);
+            // First fetch to get sub-sources and first page of content
+            var firstPage = await _cmsApiClient.GetContentAsync(source.ApiUrl, 1, 50, ct);
+            if (firstPage == null) return;
+
             lock (_cacheLock)
             {
-                _cache[source.Id] = items;
+                _subSourceCache[source.Id] = [];
             }
-            _logger.LogInformation("Synced {Count} items from {Name}", items.Count, source.Name);
+
+            // If this source has api_site sub-sources, enumerate them
+            if (firstPage.ApiSite?.Count > 0)
+            {
+                var subSources = firstPage.ApiSite.Select(kv => new CmsSubSource
+                {
+                    Name = kv.Value.Name,
+                    Api = kv.Value.Api,
+                    Detail = kv.Value.Detail
+                }).ToList();
+
+                lock (_cacheLock)
+                {
+                    _subSourceCache[source.Id] = subSources;
+                }
+                _logger.LogInformation("Found {Count} sub-sources in {Name}", subSources.Count, source.Name);
+
+                // Sync each sub-source in parallel
+                var subTasks = subSources.Select((sub, idx) =>
+                    SyncSubSourceAsync(source, idx.ToString(), sub.Api, ct)).ToList();
+                await Task.WhenAll(subTasks);
+            }
+            else
+            {
+                // No sub-sources, treat source itself as content source
+                var items = new List<CmsVideoItem>();
+                if (firstPage.List?.Count > 0)
+                    items.AddRange(firstPage.List);
+
+                // Fetch remaining pages
+                int page = 2;
+                while (true)
+                {
+                    var more = await _cmsApiClient.GetContentAsync(source.ApiUrl, page, 50, ct);
+                    if (more?.List == null || more.List.Count == 0) break;
+                    items.AddRange(more.List);
+                    if (more.List.Count < 50) break;
+                    page++;
+                    if (page > 100) break;
+                }
+
+                lock (_cacheLock)
+                {
+                    _cache[$"{source.Id}:0"] = items;
+                }
+                _logger.LogInformation("Synced {Count} items directly from {Name}", items.Count, source.Name);
+            }
         }
         catch (Exception ex)
         {
@@ -67,11 +109,37 @@ public class ContentSyncService(
         }
     }
 
-    public List<CmsVideoItem> GetCachedItems(string sourceId)
+    private async Task SyncSubSourceAsync(ContentSource source, string subIndex, string subApiUrl, CancellationToken ct)
+    {
+        try
+        {
+            var items = await _cmsApiClient.GetAllContentAsync(subApiUrl, ct);
+            lock (_cacheLock)
+            {
+                _cache[$"{source.Id}:{subIndex}"] = items;
+            }
+            _logger.LogInformation("Synced sub-source {SubIndex} from {Name}: {Count} items", subIndex, source.Name, items.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync sub-source {SubIndex} from {Name}", subIndex, source.Name);
+        }
+    }
+
+    public List<CmsVideoItem> GetCachedItems(string sourceId, string subIndex = "0")
     {
         lock (_cacheLock)
         {
-            return _cache.TryGetValue(sourceId, out var items) ? items : [];
+            var key = $"{sourceId}:{subIndex}";
+            return _cache.TryGetValue(key, out var items) ? items : [];
+        }
+    }
+
+    public List<CmsSubSource> GetCachedSubSources(string sourceId)
+    {
+        lock (_cacheLock)
+        {
+            return _subSourceCache.TryGetValue(sourceId, out var sources) ? sources : [];
         }
     }
 

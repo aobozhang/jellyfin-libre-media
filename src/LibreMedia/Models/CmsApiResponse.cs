@@ -18,4 +18,7 @@ public class CmsApiResponse
 
     [JsonPropertyName("list")]
     public List<CmsVideoItem> List { get; set; } = [];
+
+    [JsonPropertyName("api_site")]
+    public Dictionary<string, CmsSubSource>? ApiSite { get; set; }
 }
